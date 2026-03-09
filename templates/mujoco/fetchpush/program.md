@@ -1,0 +1,261 @@
+# autoresearch-robotics
+
+This is an experiment to have an LLM do its own robotics research — with visual feedback.
+
+## What makes this different
+
+Unlike standard LLM training research (where the metric is just a number), robotics research has a **visual** component. After each experiment, the robot's behavior is rendered in MuJoCo and **you analyze the rendered frames directly**. You get both quantitative metrics **and** qualitative visual feedback to guide your next experiment.
+
+## Setup
+
+To set up a new experiment, work with the user to:
+
+1. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar9`). The branch `autoresearch/<tag>` must not already exist — this is a fresh run.
+2. **Create the branch**: `git checkout -b autoresearch/<tag>` from current master.
+3. **Read the in-scope files**: The repo is small. Read these files for full context:
+   - `README.md` — repository context.
+   - `prepare.py` — fixed infrastructure: environment factory, observation utilities. Do not modify.
+   - `evaluate.py` — fixed infrastructure: evaluation harness, rendering pipeline. Do not modify.
+   - `train.py` — the file you modify. Policy architecture, SAC algorithm, hyperparameters, HER config.
+4. **Verify environment**: Check that `uv run python -c "from prepare import make_env; e = make_env(); e.reset(); e.close(); print('OK')"` works.
+5. **Initialize results.tsv**: Create `results.tsv` with header row. Do NOT run the baseline yet — that's your first experiment.
+6. **Confirm and go**: Confirm setup looks good.
+
+Once you get confirmation, kick off the experimentation.
+
+## Experimentation
+
+Each experiment runs on a single GPU (or CPU). The training script runs for a **fixed time budget of 10 minutes** (wall clock training time). After training, it automatically runs evaluation, renders MuJoCo scenes, and updates `experiment_history.json`. You launch it as: `uv run train.py --headless` (for autonomous runs) or `uv run train.py` (to see the live MuJoCo window).
+
+**What you CAN do:**
+- Modify `train.py` — this is the only file you edit. **The baseline code is a starting point, not a template.** You can and should rewrite any class, function, or algorithm from scratch when you have a better idea. Don't limit yourself to tuning hyperparameters — structural changes (different RL algorithms, different architectures, different training strategies) are where the biggest gains come from. Some areas to explore:
+  - **Policy architecture**: hidden dimensions, number of layers, activation functions, normalization, residual connections, attention — or a completely different architecture
+  - **RL algorithm**: The baseline is SAC, but you can replace it with TD3, DDPG, PPO, or something novel
+  - **SAC hyperparameters**: learning rates, gamma, tau, alpha, auto-alpha settings
+  - **Replay buffer**: buffer size, batch size, prioritized replay, n-step returns — or a completely different buffer design
+  - **HER configuration**: enable/disable, K value, strategy (future/final) — or a different goal-relabeling approach
+  - **Exploration**: noise, warmup steps, steps before learning, curiosity-driven exploration
+  - **Reward shaping**: additional reward terms within training (not the eval metric)
+  - **Optimizer**: Adam is the baseline, but try AdamW, SGD with momentum, learning rate schedules, gradient clipping
+  - **Network initialization**: weight init schemes
+  - **Observation processing**: how obs dict is flattened/preprocessed (normalization is already included)
+  - **Training loop structure**: update frequency, gradient steps per env step, multiple environments
+
+**What you CANNOT do:**
+- Modify `prepare.py` or `evaluate.py`. They are read-only. They contain the fixed environment factory, evaluation harness, and rendering.
+- Install new packages or add dependencies. You can only use what's already in `pyproject.toml`.
+- Modify the evaluation harness. The `evaluate()` function in `evaluate.py` is the ground truth metric.
+- Change the environment ID or environment parameters (they're fixed in `prepare.py`).
+
+**The goal is simple: get the highest eval_success_rate.** Since the time budget is fixed, you don't need to worry about training time — it's always 10 minutes. Everything in `train.py` is fair game.
+
+**VRAM** is a soft constraint. Some increase is acceptable for meaningful success rate gains, but it should not blow up dramatically.
+
+**Simplicity criterion**: All else being equal, simpler is better. A small improvement that adds ugly complexity is not worth it. Removing something and getting equal or better results is a great outcome.
+
+**The first run**: Your very first run should always be to establish the baseline, so you will run the training script as is.
+
+## Output format
+
+Once the script finishes it prints a summary like this:
+
+```
+---
+eval_success_rate: 0.700000
+eval_mean_reward:  -12.500000
+eval_mean_distance:0.023400
+training_seconds:  300.1
+total_seconds:     335.2
+peak_vram_mb:      1024.5
+total_steps:       150000
+total_episodes:    3000
+total_updates:     149000
+num_params:        394,752
+buffer_size:       150,000
+```
+
+It also:
+- Updates `experiment_history.json` with a new experiment entry (you fill in the hypothesis/lesson fields)
+- Saves rendered frames to `./renders/` (you analyze these in the VISUAL ANALYSIS step)
+
+You can extract the key metric from the log file:
+
+```
+grep "^eval_success_rate:" run.log
+```
+
+And read the visual feedback:
+
+```
+cat visual_feedback.txt
+```
+
+## Logging results
+
+When an experiment is done, log it to `results.tsv` (tab-separated, NOT comma-separated).
+
+The TSV has a header row and 6 columns:
+
+```
+commit	success_rate	mean_reward	vlm_summary	status	description
+```
+
+1. git commit hash (short, 7 chars)
+2. eval_success_rate achieved (e.g. 0.700000) — use 0.000000 for crashes
+3. eval_mean_reward (e.g. -12.5) — use 0.0 for crashes
+4. one-line visual summary (key observation from visual_feedback.txt) — use "N/A" for crashes
+5. status: `keep`, `discard`, or `crash`
+6. short text description of what this experiment tried
+
+Example:
+
+```
+commit	success_rate	mean_reward	vlm_summary	status	description
+a1b2c3d	0.300000	-35.0	robot barely moves toward goal	keep	baseline
+b2c3d4e	0.500000	-25.0	arm reaches but overshoots	keep	increase hidden dim to 512
+c3d4e5f	0.450000	-28.0	jerky oscillating motion	discard	switch to tanh activation
+d4e5f6g	0.000000	0.0	N/A	crash	double buffer size (OOM)
+```
+
+## The experiment loop
+
+The experiment runs on a dedicated branch (e.g. `autoresearch/mar9`).
+
+LOOP FOREVER:
+
+### 1. ANALYZE (read accumulated knowledge)
+
+Before touching any code, build your understanding of where things stand:
+
+- **Read `experiment_history.json`** — your persistent memory across experiments. Pay attention to:
+  - `insights[]` — confirmed patterns from past experiments
+  - `failed_directions[]` — things that didn't work and why (DON'T repeat these)
+  - `promising_directions[]` — untried ideas worth exploring
+  - Recent experiments — what was tried, what happened, what was learned
+- **Read `visual_feedback.txt`** — your visual analysis of the last run
+- **Read `results.tsv`** — quick overview of all experiments and trends
+
+### 2. PLAN (formulate a hypothesis)
+
+Don't just randomly tweak things. Think scientifically:
+
+- **Identify the bottleneck**: What is the current failure mode? (Use visual feedback)
+- **Check history**: Has this direction been tried before? Did it fail?
+- **Formulate a hypothesis**: "I expect [specific change] to improve success_rate because [evidence from history/visual analysis]"
+- **Predict**: What should we see if the hypothesis is correct? What if it's wrong?
+
+Write the hypothesis in your commit message.
+
+### 3. EXECUTE
+
+- Edit `train.py` with your experimental change
+- `git commit` with a message that includes your hypothesis
+- Run: `uv run train.py --headless > run.log 2>&1`
+  - **IMPORTANT**: Claude Code's Bash tool has a 10-minute max timeout. You MUST use `run_in_background: true`. You'll be notified when it finishes. Then read `run.log` for results.
+  - Kill if >60 minutes.
+
+### 4. EVALUATE (automatic)
+
+The training script handles this automatically:
+- Quantitative metrics (success_rate, mean_reward, mean_distance)
+- Renders robot behavior (3 episodes → video + key frames in `./renders/`)
+- Updates `experiment_history.json` with metrics
+
+### 5. VISUAL ANALYSIS (you do this)
+
+After the training script finishes, **you** analyze the rendered frames:
+
+1. **Read the rendered frames**: Open the PNG files from `./renders/` — there are 9 PNGs: 3 episodes × 3 frames each (`ep0_start.png`, `ep0_mid.png`, `ep0_end.png`, `ep1_start.png`, etc.)
+2. **Read previous best frames** (if `./renders_best/` exists): Open those PNGs too for visual comparison against the current run
+3. **Read context**: Read `experiment_history.json` for accumulated insights, failed directions, and recent experiment history
+4. **Analyze**: Look at the frames and assess:
+   - What is the robot doing? Describe the observed behavior
+   - If previous best frames exist: how does current behavior compare? What changed?
+   - Was the hypothesis confirmed? Why or why not?
+   - What specific failure modes are visible? (overshooting, oscillation, not moving, wrong direction, etc.)
+   - What concrete change should be tried next and why? Be specific (e.g., "increase HER_K from 4 to 8" not "try different hyperparameters")
+5. **Write `visual_feedback.txt`**: Write your analysis to this file for future reference
+
+### 6. SYNTHESIZE (update persistent memory)
+
+After reading results, update `experiment_history.json` to record what you learned:
+
+```bash
+grep "^eval_success_rate:\|^eval_mean_reward:" run.log
+cat visual_feedback.txt
+```
+
+Then edit `experiment_history.json` to fill in:
+- **commit**: the git commit hash (7 chars)
+- **description**: what you changed
+- **hypothesis**: what you expected
+- **hypothesis_confirmed**: true/false/null
+- **lesson_learned**: what you now know that you didn't before
+- **vlm_feedback_summary**: one-line summary from your visual analysis
+- **vlm_failure_modes**: list of observed failure modes
+- **vlm_suggestions**: list of your suggestions for next steps
+- **status**: "keep" or "discard"
+- Update **insights[]** if you discovered a new confirmed pattern
+- Update **failed_directions[]** if this direction failed (so you don't repeat it)
+- Update **promising_directions[]** with new ideas from your visual analysis
+
+Also log to `results.tsv` for human-readable tracking.
+
+### 7. DECIDE
+
+- If eval_success_rate **improved** (higher than previous best): **keep** the commit, advance the branch
+- If eval_success_rate is **equal or worse**: **discard** — `git reset` back to where you started
+
+### 8. REPEAT
+
+Go back to step 1. The accumulated knowledge in `experiment_history.json` makes each iteration smarter than the last.
+
+## Planning heuristics
+
+When deciding what to try next, follow this priority:
+
+1. **FIX BUGS FIRST** — If you see correctness issues (NaN losses, training not converging at all), fix them before trying new ideas
+2. **LOW-HANGING FRUIT** — Known-good techniques from RL literature (observation normalization is already in the baseline)
+3. **EXPLOIT VISUAL INSIGHTS** — Your visual analysis sees things numbers can't. Trust the failure mode analysis. If you see "gripper never closes," focus on that
+4. **COMBINE WINNERS** — If two independent changes each improved performance, try them together
+5. **ABLATE** — If you added something complex that helped, try removing pieces to find the minimal effective change
+6. **GO RADICAL** — Don't wait to plateau. If you have a hypothesis that a different algorithm or architecture would work better, try it. Rewrite the Actor class, replace SAC with TD3, add a curiosity module. The baseline code is a starting point, not sacred.
+
+## Progress reporting
+
+At each phase of the experiment loop, print a clear status line so the human can monitor progress. Use this format:
+
+```
+>>> [EXPERIMENT N] PHASE — brief description
+```
+
+Specifically:
+- At ANALYZE: `>>> [EXPERIMENT N] ANALYZE — reading experiment history and visual feedback`
+- At PLAN: `>>> [EXPERIMENT N] PLAN — hypothesis: <one-line hypothesis>`
+- At EXECUTE: `>>> [EXPERIMENT N] EXECUTE — running training (<description of change>)`
+- After EXECUTE: `>>> [EXPERIMENT N] RESULT — success_rate=X.XX (previous best=Y.YY)`
+- At VISUAL ANALYSIS: `>>> [EXPERIMENT N] VISUAL ANALYSIS — analyzing rendered frames`
+- At SYNTHESIZE: `>>> [EXPERIMENT N] SYNTHESIZE — updating experiment history`
+- At DECIDE: `>>> [EXPERIMENT N] DECIDE — <keep|discard> (reason)`
+
+Where N is the experiment number (1, 2, 3, ...). These markers help the human see progress when running in `claude -p` mode.
+
+## Key files
+
+```
+prepare.py              — env factory, obs utilities (read-only)
+evaluate.py             — evaluation, rendering (read-only)
+train.py                — SAC policy, HER buffer, training loop (you modify this)
+program.md              — these instructions
+experiment_history.json — persistent structured memory across experiments
+results.tsv             — human-readable experiment log
+visual_feedback.txt     — latest visual analysis (you write this)
+renders/                — latest rendered frames + video
+renders_best/           — frames from the best experiment so far (for visual comparison)
+```
+
+**Timeout**: Each experiment should take ~12 minutes total (10 min training + eval/render overhead). If a run exceeds 60 minutes, kill it and treat it as a failure.
+
+**Crashes**: If a run crashes (OOM, or a bug), use your judgment: if it's something dumb and easy to fix, fix it and re-run. If the idea itself is broken, skip it, log "crash", and move on.
+
+**NEVER STOP**: Once the experiment loop has begun, do NOT pause to ask the human if you should continue. The human might be asleep. You are autonomous. If you run out of ideas, re-read the visual feedback and experiment history for new angles, try combining previous near-misses, try radical architectural changes. The loop runs until the human interrupts you, period.
