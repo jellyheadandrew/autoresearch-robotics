@@ -4,16 +4,6 @@ Karpathy's [autoresearch](https://github.com/karpathy/autoresearch) adapted for 
 
 ![teaser](assets/teaser.gif)
 
-## Results
-
-**FetchReach:**
-
-![FetchReach Results](assets/results_plot_fetchreach.png)
-
-**FetchPush, FetchPickPlace**: TBD Soon.
-
-**VLA Experiments**: TBD after getting compute credits. (Support would be appreciated! [buymeacoffee.com/jellyheadandrew](https://buymeacoffee.com/jellyheadandrew))
-
 ## Quickstart
 
 Requirements: Python 3.10+, Claude Code (or any coding agent). (Tested on Nvidia RTX 2080)
@@ -58,9 +48,7 @@ Then type:
 
 ```
 Read program.md and let's set up a new experiment. Then start the experiment loop.
-```
-Or, for headless mode:
-```
+# Or, for headless mode:
 Read program.md and let's set up a new experiment. Then start the experiment loop. Use --headless mode.
 ```
 
@@ -81,6 +69,16 @@ watch -n 30 'git log --oneline -10'
 | `mujoco/fetchpush` | Push a cube to a goal | 10 minutes | ~5 |
 | `mujoco/fetchpickplace` | Pick and place an object | 30 minutes | ~2 |
 | `isaac/fetchreach` | Reach (Isaac Sim) | 60 seconds | prototype |
+
+## Results
+
+**FetchReach:**
+
+![FetchReach Results](assets/results_plot_fetchreach.png)
+
+**FetchPush, FetchPickPlace**: TBD Soon.
+
+**VLA Experiments**: TBD after getting compute credits. (Support would be appreciated! [buymeacoffee.com/jellyheadandrew](https://buymeacoffee.com/jellyheadandrew))
 
 ## What changed from the original
 
