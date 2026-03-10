@@ -18,3 +18,11 @@ AGENTS.md
 
 # Experimental code/artifacts
 dev/
+
+# Experiment run artifacts (generated during autonomous runs)
+renders/
+renders_best/
+experiment_history.json
+results.tsv
+visual_feedback.txt
+run.log

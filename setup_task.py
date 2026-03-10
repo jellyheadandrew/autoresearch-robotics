@@ -113,7 +113,7 @@ def render_template(template_content: str, variables: dict) -> str:
     return result
 
 
-def setup_task(template_name: str, target_dir: Path):
+def setup_task(template_name: str, target_dir: Path, program_path: Path = None):
     """Assemble an experiment directory from a template."""
     template_path = TEMPLATES_DIR / template_name
     if not template_path.is_dir():
@@ -155,6 +155,13 @@ def setup_task(template_name: str, target_dir: Path):
         (target_dir / "program.md").write_text(rendered)
         template_file.unlink()  # Remove the template file from output
 
+    # Override with custom program.md if provided
+    if program_path is not None:
+        if not program_path.exists():
+            print(f"ERROR: Custom program.md not found: {program_path}", file=sys.stderr)
+            sys.exit(1)
+        shutil.copy2(str(program_path), str(target_dir / "program.md"))
+
     # Print summary
     print(f"Created experiment directory: {target_dir}")
     print(f"  Template: {template_name}")
@@ -181,6 +188,7 @@ def main():
     parser.add_argument("template", nargs="?", help="Template name (e.g. mujoco/fetchreach)")
     parser.add_argument("target", nargs="?", help="Target directory to create")
     parser.add_argument("--list", action="store_true", help="List available templates")
+    parser.add_argument("--program", type=Path, help="Custom program.md to use instead of default")
 
     args = parser.parse_args()
 
@@ -194,7 +202,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    setup_task(args.template, Path(args.target))
+    setup_task(args.template, Path(args.target), program_path=args.program)
 
 
 if __name__ == "__main__":
